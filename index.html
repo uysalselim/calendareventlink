@@ -599,6 +599,118 @@
             margin-top: 4px;
         }
 
+        /* AI Mode Tabs */
+        .ai-mode-tabs {
+            display: flex;
+            gap: 4px;
+            background: var(--bg-tertiary);
+            padding: 4px;
+            border-radius: var(--radius-sm);
+            margin-bottom: 16px;
+        }
+
+        .ai-mode-tab {
+            flex: 1;
+            padding: 10px 16px;
+            border: none;
+            background: transparent;
+            color: var(--text-secondary);
+            font-family: inherit;
+            font-size: 13px;
+            font-weight: 500;
+            cursor: pointer;
+            border-radius: 4px;
+            transition: all 0.2s ease;
+        }
+
+        .ai-mode-tab:hover {
+            color: var(--text-primary);
+        }
+
+        .ai-mode-tab.active {
+            background: var(--bg-secondary);
+            color: var(--text-primary);
+            box-shadow: var(--shadow-sm);
+        }
+
+        .ai-mode-info {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            padding: 10px 14px;
+            background: var(--bg-tertiary);
+            border-radius: var(--radius-sm);
+            margin-bottom: 16px;
+            font-size: 13px;
+            color: var(--text-secondary);
+        }
+
+        .ai-mode-info.free-mode {
+            background: var(--success-light);
+            color: var(--success);
+        }
+
+        .requests-remaining {
+            font-weight: 500;
+        }
+
+        .own-key-section {
+            padding: 16px;
+            background: var(--bg-tertiary);
+            border-radius: var(--radius-sm);
+            margin-bottom: 16px;
+        }
+
+        .provider-select label {
+            display: block;
+            margin-bottom: 8px;
+        }
+
+        .provider-buttons {
+            display: flex;
+            gap: 8px;
+        }
+
+        .provider-btn {
+            flex: 1;
+            padding: 10px 16px;
+            border: 1px solid var(--border);
+            background: var(--bg-secondary);
+            color: var(--text-secondary);
+            font-family: inherit;
+            font-size: 13px;
+            font-weight: 500;
+            cursor: pointer;
+            border-radius: var(--radius-sm);
+            transition: all 0.2s ease;
+        }
+
+        .provider-btn:hover {
+            border-color: var(--accent);
+            color: var(--text-primary);
+        }
+
+        .provider-btn.active {
+            background: var(--accent);
+            border-color: var(--accent);
+            color: white;
+        }
+
+        .api-key-hint {
+            font-size: 12px;
+            color: var(--text-tertiary);
+            margin-top: 8px;
+        }
+
+        .api-key-hint a {
+            color: var(--accent);
+            text-decoration: none;
+        }
+
+        .api-key-hint a:hover {
+            text-decoration: underline;
+        }
+
         /* Platforms grid for bulk */
         .platforms-mini {
             display: flex;
@@ -1249,7 +1361,8 @@ END:VCALENDAR`;
 
         // AI Chat Component
         const AIChat = () => {
-            const [useOwnKey, setUseOwnKey] = useState(false);
+            const [aiMode, setAiMode] = useState('free'); // 'free' or 'own'
+            const [apiProvider, setApiProvider] = useState('claude'); // 'claude' or 'openai'
             const [apiKey, setApiKey] = useState('');
             const [messages, setMessages] = useState([
                 { 
@@ -1287,13 +1400,83 @@ END:VCALENDAR`;
                 return null;
             };
 
-            const sendMessage = async () => {
-                if (!input.trim()) return;
-                
-                if (useOwnKey && !apiKey) {
+            const sendMessageWithOwnKey = async (userMessage) => {
+                if (!apiKey) {
                     setToast('Please enter your API key');
                     return;
                 }
+
+                const systemPrompt = `You are a calendar event assistant. When users describe events they want to create, extract the information and return a JSON array of events.
+
+Each event should have this format:
+{
+  "title": "Event name",
+  "start": "2025-01-15T09:00:00",
+  "end": "2025-01-15T10:00:00",
+  "description": "Optional description",
+  "location": "Optional location",
+  "allDay": false
+}
+
+For recurring events, generate each individual occurrence.
+Always use ISO 8601 datetime format.
+If the user doesn't specify a year, use 2025.
+If duration isn't specified, default to 1 hour.
+For "every Monday for 4 weeks" type requests, generate 4 separate events.
+
+Return ONLY the JSON array, no other text. If you need clarification, ask a question instead.`;
+
+                if (apiProvider === 'openai') {
+                    // OpenAI API
+                    const response = await fetch('https://api.openai.com/v1/chat/completions', {
+                        method: 'POST',
+                        headers: {
+                            'Content-Type': 'application/json',
+                            'Authorization': `Bearer ${apiKey}`
+                        },
+                        body: JSON.stringify({
+                            model: 'gpt-4o-mini',
+                            messages: [
+                                { role: 'system', content: systemPrompt },
+                                ...messages.filter(m => m.role !== 'assistant' || messages.indexOf(m) > 0).map(m => ({
+                                    role: m.role,
+                                    content: m.content
+                                })),
+                                { role: 'user', content: userMessage.content }
+                            ]
+                        })
+                    });
+                    const data = await response.json();
+                    if (data.error) throw new Error(data.error.message);
+                    return data.choices[0].message.content;
+                } else {
+                    // Claude API
+                    const response = await fetch('https://api.anthropic.com/v1/messages', {
+                        method: 'POST',
+                        headers: {
+                            'Content-Type': 'application/json',
+                            'x-api-key': apiKey,
+                            'anthropic-version': '2023-06-01',
+                            'anthropic-dangerous-direct-browser-access': 'true'
+                        },
+                        body: JSON.stringify({
+                            model: 'claude-sonnet-4-20250514',
+                            max_tokens: 2048,
+                            system: systemPrompt,
+                            messages: [...messages.filter(m => m.role !== 'assistant' || messages.indexOf(m) > 0), userMessage].map(m => ({
+                                role: m.role,
+                                content: m.content
+                            }))
+                        })
+                    });
+                    const data = await response.json();
+                    if (data.error) throw new Error(data.error.message);
+                    return data.content[0].text;
+                }
+            };
+
+            const sendMessage = async () => {
+                if (!input.trim()) return;
 
                 const userMessage = { role: 'user', content: input };
                 setMessages(prev => [...prev, userMessage]);
@@ -1301,30 +1484,38 @@ END:VCALENDAR`;
                 setLoading(true);
 
                 try {
-                    const response = await fetch('/api/chat', {
-                        method: 'POST',
-                        headers: {
-                            'Content-Type': 'application/json',
-                        },
-                        body: JSON.stringify({
-                            messages: [...messages.filter(m => m.role !== 'assistant' || messages.indexOf(m) > 0), userMessage],
-                            userApiKey: useOwnKey ? apiKey : null
-                        })
-                    });
+                    let aiResponse;
 
-                    // Check rate limit headers
-                    const remaining = response.headers.get('X-RateLimit-Remaining');
-                    if (remaining !== null) {
-                        setRemainingRequests(parseInt(remaining));
+                    if (aiMode === 'own') {
+                        aiResponse = await sendMessageWithOwnKey(userMessage);
+                    } else {
+                        // Use server API
+                        const response = await fetch('/api/chat', {
+                            method: 'POST',
+                            headers: {
+                                'Content-Type': 'application/json',
+                            },
+                            body: JSON.stringify({
+                                messages: [...messages.filter(m => m.role !== 'assistant' || messages.indexOf(m) > 0), userMessage],
+                                userApiKey: null
+                            })
+                        });
+
+                        const remaining = response.headers.get('X-RateLimit-Remaining');
+                        if (remaining !== null) {
+                            setRemainingRequests(parseInt(remaining));
+                        }
+
+                        const data = await response.json();
+                        
+                        if (!response.ok) {
+                            throw new Error(data.error || 'Request failed');
+                        }
+                        
+                        aiResponse = data.content;
                     }
 
-                    const data = await response.json();
-                    
-                    if (!response.ok) {
-                        throw new Error(data.error || 'Request failed');
-                    }
-
-                    const parsedEvents = parseEventsFromAI(data.content);
+                    const parsedEvents = parseEventsFromAI(aiResponse);
 
                     if (parsedEvents && parsedEvents.length > 0) {
                         const eventsWithLinks = parsedEvents.map((e, idx) => ({
@@ -1344,7 +1535,7 @@ END:VCALENDAR`;
                             content: `Done! I've created ${eventsWithLinks.length} event${eventsWithLinks.length > 1 ? 's' : ''} for you. Click any platform to copy the link.` 
                         }]);
                     } else {
-                        setMessages(prev => [...prev, { role: 'assistant', content: data.content }]);
+                        setMessages(prev => [...prev, { role: 'assistant', content: aiResponse }]);
                     }
                 } catch (error) {
                     console.error('API Error:', error);
@@ -1366,36 +1557,69 @@ END:VCALENDAR`;
 
             return (
                 <div className="card fade-in">
-                    <div className="api-toggle">
-                        <input 
-                            type="checkbox" 
-                            id="useOwnKey"
-                            checked={useOwnKey}
-                            onChange={(e) => setUseOwnKey(e.target.checked)}
-                        />
-                        <label htmlFor="useOwnKey" style={{ margin: 0, cursor: 'pointer' }}>
-                            Use my own API key (no rate limit)
-                        </label>
+                    {/* AI Mode Sub-tabs */}
+                    <div className="ai-mode-tabs">
+                        <button 
+                            className={`ai-mode-tab ${aiMode === 'free' ? 'active' : ''}`}
+                            onClick={() => setAiMode('free')}
+                        >
+                            ✨ Free (Limited)
+                        </button>
+                        <button 
+                            className={`ai-mode-tab ${aiMode === 'own' ? 'active' : ''}`}
+                            onClick={() => setAiMode('own')}
+                        >
+                            🔑 Use Your API Key
+                        </button>
                     </div>
 
-                    {useOwnKey && (
-                        <div className="api-key-input fade-in">
-                            <label style={{ fontWeight: 500 }}>Your Anthropic API Key</label>
-                            <input 
-                                type="password"
-                                placeholder="sk-ant-..."
-                                value={apiKey}
-                                onChange={(e) => setApiKey(e.target.value)}
-                            />
-                            <div className="rate-limit-info">
-                                Get your key at <a href="https://console.anthropic.com/" target="_blank" rel="noopener noreferrer">console.anthropic.com</a>
-                            </div>
+                    {aiMode === 'free' && (
+                        <div className="ai-mode-info free-mode">
+                            <span>10 requests per hour • No signup needed</span>
+                            {remainingRequests !== null && (
+                                <span className="requests-remaining">{remainingRequests} remaining</span>
+                            )}
                         </div>
                     )}
 
-                    {!useOwnKey && remainingRequests !== null && (
-                        <div className="rate-limit-info" style={{ marginBottom: '16px' }}>
-                            {remainingRequests} requests remaining this hour
+                    {aiMode === 'own' && (
+                        <div className="own-key-section fade-in">
+                            <div className="provider-select">
+                                <label>Provider</label>
+                                <div className="provider-buttons">
+                                    <button 
+                                        className={`provider-btn ${apiProvider === 'claude' ? 'active' : ''}`}
+                                        onClick={() => setApiProvider('claude')}
+                                    >
+                                        Claude
+                                    </button>
+                                    <button 
+                                        className={`provider-btn ${apiProvider === 'openai' ? 'active' : ''}`}
+                                        onClick={() => setApiProvider('openai')}
+                                    >
+                                        OpenAI
+                                    </button>
+                                </div>
+                            </div>
+                            <div className="form-group" style={{ marginTop: '12px', marginBottom: '0' }}>
+                                <label>
+                                    {apiProvider === 'claude' ? 'Anthropic API Key' : 'OpenAI API Key'}
+                                </label>
+                                <input 
+                                    type="password"
+                                    placeholder={apiProvider === 'claude' ? 'sk-ant-...' : 'sk-...'}
+                                    value={apiKey}
+                                    onChange={(e) => setApiKey(e.target.value)}
+                                />
+                                <div className="api-key-hint">
+                                    Get your key at{' '}
+                                    {apiProvider === 'claude' ? (
+                                        <a href="https://console.anthropic.com/" target="_blank" rel="noopener noreferrer">console.anthropic.com</a>
+                                    ) : (
+                                        <a href="https://platform.openai.com/api-keys" target="_blank" rel="noopener noreferrer">platform.openai.com</a>
+                                    )}
+                                </div>
+                            </div>
                         </div>
                     )}
 
@@ -1538,7 +1762,7 @@ END:VCALENDAR`;
             return (
                 <div className="newsletter-section">
                     <div className="newsletter-icon">📬</div>
-                    <h3 className="newsletter-title">Get updates on new features</h3>
+                    <h3 className="newsletter-title">Get Updates on New Features</h3>
                     <p className="newsletter-desc">
                         Be the first to know when we add new tools and improvements.
                     </p>
@@ -1607,7 +1831,7 @@ END:VCALENDAR`;
 
                     <footer className="footer">
                         <p>
-                            Built by <a href="https://selimuysal.net" target="_blank" rel="noopener noreferrer">Selim Uysal</a> • Free forever
+                            Built by <a href="https://selimuysal.net" target="_blank" rel="noopener noreferrer">Selim Uysal</a>
                         </p>
                     </footer>
                 </div>

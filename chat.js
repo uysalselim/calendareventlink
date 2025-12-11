@@ -48,8 +48,18 @@ export default async function handler(req, res) {
   if (req.method !== 'POST') {
     return res.status(405).json({ error: 'Method not allowed' });
   }
+
+  // Parse body if needed
+  let body = req.body;
+  if (typeof body === 'string') {
+    try {
+      body = JSON.parse(body);
+    } catch (e) {
+      return res.status(400).json({ error: 'Invalid JSON body' });
+    }
+  }
   
-  const { messages, userApiKey } = req.body;
+  const { messages, userApiKey } = body || {};
   
   if (!messages || !Array.isArray(messages)) {
     return res.status(400).json({ error: 'Messages are required' });
@@ -64,7 +74,7 @@ export default async function handler(req, res) {
     apiKey = process.env.ANTHROPIC_API_KEY;
     
     if (!apiKey) {
-      return res.status(500).json({ error: 'Server API key not configured' });
+      return res.status(500).json({ error: 'Server API key not configured. Please add ANTHROPIC_API_KEY in Vercel Environment Variables.' });
     }
     
     // Check rate limit only for server key usage
@@ -135,6 +145,6 @@ Return ONLY the JSON array, no other text. If you need clarification, ask a ques
     
   } catch (error) {
     console.error('API Error:', error);
-    return res.status(500).json({ error: 'Failed to process request' });
+    return res.status(500).json({ error: 'Failed to process request: ' + error.message });
   }
 }
