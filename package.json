@@ -1,0 +1,10 @@
+{
+  "name": "calendarevent-link",
+  "version": "1.0.0",
+  "description": "Calendar link generator for Google, Outlook, Yahoo and more",
+  "type": "module",
+  "private": true,
+  "scripts": {
+    "start": "npx serve ."
+  }
+}
